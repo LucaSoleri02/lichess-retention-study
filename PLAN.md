@@ -113,20 +113,33 @@ Leaderboards, current tournaments, API endpoint exploration, directory structure
 
 Close, once, without forcing it: *"I approached this as a product analytics problem — start from a business outcome, identify drivers, separate actionable from non-actionable factors, and design the experiment that would validate the intervention"* — and let it map itself onto the role rather than naming Bending Spoons' job description out loud.
 
-## 12. Codebase structure
+## 12. Technical architecture (AGENTS.md source of truth)
+
+### 12.1 Layout
+
 ```
 ds project/
-  PLAN.md
-  .venv/
+  PLAN.md                  <- this file (product plan + technical architecture)
+  .venv/                   <- uv-managed Python 3.12 venv (shared across repos)
+  .gitignore               <- excludes .venv, all data/outputs, interview-internal datasets
+  .gitattributes           <- LF normalization for tracked text files
   Lichess/
-    explore_lichess.py
+    explore_lichess.py     <- original scoping script (kept as history)
+    run_pipeline.py        <- end-to-end runner: P1→P2→P2b→P3, idempotent, resumable
+    run_harness.py         <- CLI entry point (smoke / run / batch / board / best / data)
+    harness_runs/          <- experiment packs (JSON), versioned in git
+      baseline_pack.json
     src/
-      config.py                <- paths, API constants, cohort params, churn bands, value-tier cutoffs
-      client.py                <- sequential, polite API client; bulk users; aggressive 429 backoff
-      dump.py                  <- download + stream-parse PGN headers (2016-01, 2016-02, recent month)
-      cohort.py                <- Population A/B construction, bulk profiles (incl. patron), labels
-      features.py               <- first-30-day behavior + habit + experience-quality features
-      viz.py
+      __init__.py
+      config.py            <- paths, API constants, cohort params, churn bands, value-tier cutoffs, sampling
+      client.py            <- LichessClient: sequential, polite, aggressive 429 backoff, bulk users (checkpointed)
+      dump.py              <- download + stream-parse PGN headers → typed games parquet; recent-month capped username scan
+      cohort.py            <- Population A/B construction, bulk profiles (resume-friendly checkpoint), labels, segments, value tiers
+      features.py          <- equal 30-day post-signup windows, engagement/habit/experience-quality features
+      metrics.py           <- capture@10pct, precision@k, lift@k, roc_auc, log_loss
+      harness.py           <- Experiment spec, deterministic username-hash split, model factory, runner, append-only leaderboard, verdict
+      data_quality.py      <- PASS/WARN/FAIL/SKIP checks per artifact, drift, jsonl history, warn-only gating
+      viz.py               <- shared matplotlib style + save helpers
     experiments/
       e1_diagnose_survival_and_concentration.py
       e2_predict_risk_and_value.py
@@ -139,21 +152,93 @@ ds project/
         snapshot_today.py
         cohort_2019_replication.py
     data/
-      raw/ | interim/ | processed/
-    outputs/
-      figures/                 <- titled with the finding, not the variable
-      tables/
+      raw/                 <- .zst dumps (reproducible via dump.py)
+      interim/             <- games parquets, user aggregates, active-user scan
+      processed/           <- final cohort table with labels
+    outputs/               <- all generated artifacts (gitignored)
+      figures/             <- charts, titled with the finding
+      tables/              <- csv summaries
+      harness/             <- model leaderboard.csv + per-run JSON sidecars
+        data_quality.jsonl <- append-only DQ history
+      harness_smoke/       <- isolated smoke-test outputs (never touches real history)
+  Spotify/                 <- parallel exploration (public data candidates), kept as history
 ```
 
-## 13. Phases
+### 12.2 The two-layer harness
+
+Everything is designed around one loop: **change something → run → know if it helped.** Two layers share the same CLI and the same append-only registry philosophy.
+
+#### Data-quality layer (`src/data_quality.py`)
+Declared checks per pipeline artifact; each returns PASS / WARN / FAIL / SKIP.
+
+| Artifact | Check categories |
+|---|---|
+| `games_<month>.parquet` | schema (required columns present); volume (row count vs expected range); integrity (null rates, no duplicates, datetimes in month, result ∈ {1-0, 0-1, ½-½}, Elo ∈ [600, 3200], nummoves ≥ 1); distribution (speed mix not degenerate, timecontrol parse rate) |
+| `cohort_<month>.parquet` | integrity (unique username, no null usernames, created_at ≤ seen_at); label sanity (Pop-B share, active_90d rate, patron rate < 15%, segments cover all); coverage (`played_recent_month` populated) |
+| `user_window_features.parquet` | bounds (rates/shares ∈ [0,1], days_active ≤ 31, games_total ≥ 1); completeness (Pop-B coverage ≥ 95%) |
+| any rebuilt artifact | **drift** vs previous DQ run: row-count Δ% and label-rate drift → WARN beyond tolerance |
+
+- Thresholds live in **one dict** (`THRESHOLDS`) at the top of `data_quality.py`, tuned in code, versioned with the repo. Row-count ranges are first-pass estimates to tighten in P1 against Lichess's published monthly totals.
+- **History**: every DQ run appends one JSON line to `outputs/harness/data_quality.jsonl` with timestamp, counts, and full check records — you can see over time whether the pipeline is degrading.
+- **Gating (warn-only)**: `run`/`batch` calls check the latest DQ verdict for the cohort; if any FAILs, a prominent banner prints but execution continues. This is deliberate (decided 2026-09-17): DQ gates the *inputs* but the experiment harness stays independent during exploration.
+- **SKU** artifact-not-built checks become `SKIP` (not FAIL) so early-stage runs are informative, not broken.
+
+#### Model layer (`src/harness.py` + `src/metrics.py`)
+| Component | Detail |
+|---|---|
+| **Deterministic split** | `md5(username) % 1000 < 200` → train/test. Same split across every run (no stored split files), so any two runs with the same target are directly comparable. |
+| **Headline metric** | **`capture@10pct`** = share of all positives in the top 10% scored (PLAN §7). AUC is reported but never headlined. Plus precision@k, lift@k, roc_auc, log_loss. |
+| **Verdict** | compares the new run to the **best previous run for the same target** on `capture@10pct` → `IMPROVED` / `NO IMPROVEMENT` / `FIRST RUN`. |
+| **Registry** | append-only `outputs/harness/leaderboard.csv` + one JSON sidecar per run in `outputs/harness/runs/`. Each run records: git hash, timestamp, target, model, params, features, data fingerprint (row count + hash of input frame). |
+| **Models** | `logreg` (impute+scale), `gbdt` (`HistGradientBoostingClassifier`, native NaN), `rf`. Wrapped in sklearn Pipelines. |
+| **Feature presets** | `core` / `habit` / `experience` / `control` / `all`, composable via `+` (e.g. `core+habit`) or explicit comma list. Elo enters only as `control` (descriptive, not a headline — PLAN §5). |
+| **Targets** | `churn` = `~active_90d` (1 = churned); `patron` = `patron` flag (1 = paid supporter). |
+| **Smoke mode** | `smoke` subcommand generates a synthetic Pop-B-like frame with planted linear signal, runs the DQ layer (including a deliberately-broken frame to prove FAIL detection), and runs the baseline pack. Writes to an **isolated** directory (`outputs/harness_smoke/`) so synthetic results never pollute the real leaderboard or DQ history. |
+| **Comparison rule** | two runs are comparable iff they share the same target + split (guaranteed by the hash) and the same data fingerprint (guaranteed by logging). |
+
+#### CLI reference (`run_harness.py`)
+```
+python run_harness.py smoke                                        # self-test on synthetic data
+python run_harness.py data                                         # DQ checks on all built artifacts
+python run_harness.py data --dataset <dataset>                     # one artifact
+python run_harness.py data --history                               # past DQ runs (timestamped summary)
+python run_harness.py run --target <churn|patron> --model <logreg|gbdt|rf> --features <preset|list> [--param k=v] [--name ...]
+python run_harness.py batch harness_runs/baseline_pack.json        # run a declared pack
+python run_harness.py board [--target <t>] [--metric <capture@10pct|precision@10pct|lift@10pct|roc_auc|log_loss>]
+python run_harness.py best [--target <t>]                          # current champion per target
+```
+- `run`/`batch` warn on DQ FAILs; `warn if git dirty` note printed when the working tree is unclean.
+
+### 12.3 Pipeline runner (`run_pipeline.py`)
+End-to-end: P1 → P2 → P2b → P3. Each step is **idempotent** (skips when its output file exists) and checkpointed, so a restart only finishes the incomplete portion.
+- Step `dump`: downloads the .zst (idempotent) and parses to parquet.
+- Step `cohort`: bulk-profiles all distinct cohort-month users (checkpointed to `data/interim/profiles_checkpoint.jsonl`; re-runs fetch nothing).
+- Step `features`: window features for Population B; Jan aggregates for Population A.
+- Step `data`: runs DQ checks and appends the run to history.
+- Step `model`: runs the baseline pack (`harness_runs/baseline_pack.json`).
+
+### 12.4 Experiment stub contract (`experiments/`)
+Each stub is a standalone, runnable script (imports `src`, writes to `outputs/figures` and `outputs/tables`). Each documents: **Question · Method · Inputs · Outputs · Business decision · Phase**. The experiment map is in PLAN §7; each stub implements its slice.
+
+### 12.5 Data strategy recap (PLAN §2)
+| Source | Auth | Role | Size |
+|---|---|---|---|
+| `2016-01` dump | none | Population A/B frame | ~0.87 GB |
+| `2016-02` dump | none | equal 30-day post-signup window | ~0.9 GB |
+| `2026-08` dump | none | capped username scan (PLAN §4 cross-check) | ~30 GB (only ~1.5 GB transferred, 5M-game cap) |
+| `POST /api/users` (bulk, 300/call) | none | profiles + labels | ~200k users (~20 min, checkpointed) |
+
+`gh` CLI: authenticated as `LucaSoleri02` (`repo`, `gist`, `read:org`, `workflow` scopes). `gh` is on PATH in new shells (machine PATH set by installer; `~/.bashrc` also exports it); old shells can refresh with `$env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")`.
+
+## 13. Phases (current status in parentheses)
 | Phase | Content | Exit criteria |
 |---|---|---|
-| P0 Scaffolding ✅ | structure, config, client, packages | client sanity test passes |
-| P1 Data acquisition | 2016-01 + 2016-02 + recent-month dumps → parquet | counts sanity-checked vs. published totals |
-| P2 Cohort & labels | Pop. A/B, bulk profiles (incl. `patron`), retention + monetization + value-tier + voluntary/involuntary labels, behavioral cross-check | label balance reported for both outcomes |
-| P3 Core analysis | E1–E3 | figures + tables, actionability table populated |
-| P4 Hypotheses & test | E4–E5, E7 test design | test spec complete, causal language audited |
-| P5 Survivors, polish, optional depth | E6, deck assembly; appendix items only if time allows | full dry-run under 15 min |
+| **P0** ✅ | structure, config, client, packages | client sanity test passes |
+| **P1** 🔄 in progress | 2016-01 ✅ parsed (75 MB parquet), 2016-02 parsing, then `recent` capped scan | counts sanity-checked vs. published totals |
+| P2 | Pop. A/B, bulk profiles (incl. `patron`), retention + monetization + value-tier + voluntary/involuntary labels, behavioral cross-check | label balance reported for both outcomes |
+| P3 | E1–E3 | figures + tables, actionability table populated |
+| P4 | E4–E5, E7 test design | test spec complete, causal language audited |
+| P5 | E6, deck assembly; appendix items only if time allows | full dry-run under 15 min |
 
 ## 14. Risks & mitigations
 - `seenAt` incompleteness → recent-month cross-check + explicit survival/censoring framing (§4).
@@ -163,19 +248,22 @@ ds project/
 - Observational findings read as causal → actionability table + language discipline (§5, §8) + E7 as the explicit causal-claim boundary.
 - Scope creep → appendix items (§9) are explicitly optional; the story stands on E1–E7.
 - Sparse cells in E3–E5 cuts → report n and CI on every cut; prioritize sampling budget toward Population B (§15).
+- **Metric comparability** → deterministic hash split + data fingerprint in every run record (§12.2).
+- **DQ gate staleness** → warn-only coupling; re-run `data` if the pipeline artifacts change.
+- **Long P2 pull (~20 min, 200k profiles)** → checkpointed; a restart fetches nothing.
 
 ## 15. Open decisions for the user
 - **Months to pull:** 2016-01 (cohort) + 2016-02 (window fix) + one recent month (cross-check) — three months total, still small.
 - **2019-01 replication:** optional, only if reframed as product-health-over-time and only if there's spare time.
 - **Personal API token for micro-behavior:** skip; low return for the format.
-- **Sampling:** all Population-B signups + a smaller Population-A slice (~10–15k) than originally planned, reallocating budget toward window/cross-check pulls and toward having enough power in the E3–E5 cuts.
+- **Sampling:** P2 pulls **all** distinct cohort-month users (~200k, ~20 min via checkpointed bulk) — this yields complete Population B plus the full Population A; experiments then report/aggregate as needed (the plan's "~10–15k Pop-A slice" is applied downstream in experiment reporting).
+- **TODO — latest profile fetch:** Retry the remaining 2,524 January-player profiles after the Lichess bulk API rate limit clears; rebuild the cohort, features, DQ, and affected experiment outputs from the final checkpoint.
+- **P1 in progress** — 2016-02 is still being parsed when you read this; `recent` and P2 follow.
 
 ---
 
-### Implementation notes (added during scaffolding, 2026-09-17)
-- **Recent-month cross-check is a capped scan, not a full download.** The 2026-08 dump is ~30 GB compressed; we only need username presence, so `dump.py` streams the `.zst` and stops after `RECENT_MONTH_MAX_GAMES` (default 5M games ≈ first days of the month ≈ ~1.5 GB download). This underestimates "played recently" slightly (users whose only session fell later in the month are missed), so the login-vs-behavior gap it yields is a conservative bound — stated on stage.
-- **Bulk profiles confirmed to return** `createdAt`, `seenAt`, `perfs`, `playTime`, `title`, `profile`; `patron` expected present when true (verified: field appears on patron accounts) — P2 will assert its presence before relying on it.
+### Implementation notes
+- **Recent-month cross-check is a capped scan, not a full download** (§12.5). `dump.py` streams the `.zst` over HTTP and stops after `RECENT_MONTH_MAX_GAMES` (default 5M games ≈ first days of the month ≈ ~1.5 GB download). This underestimates "played recently" slightly (users whose only session fell later in the month are missed), so the login-vs-behavior gap it yields is a conservative bound — stated on stage.
+- **Bulk profiles confirmed to return** `createdAt`, `seenAt`, `perfs`, `playTime`, `title`, `profile`; `patron` present on patron accounts — `cohort.py` normalizes flags to boolean.
 - All three target months: `2016-01` (0.87 GB), `2016-02` (~0.9 GB), `2026-08` (capped scan).
-- **Experiment harness added (2026-09-17), extending §12.** Two layers, one CLI (`Lichess/run_harness.py`):
-  - *Data-quality layer* (`src/data_quality.py`): declared PASS/WARN/FAIL/SKIP checks per pipeline artifact (schema, volume, integrity, distribution, bounds, completeness, drift vs previous build). Thresholds in one in-code dict. History in `outputs/harness/data_quality.jsonl`. Model runs *warn* on DQ FAILs but never block.
-  - *Model layer* (`src/harness.py` + `src/metrics.py`): declared experiments (JSON packs in `harness_runs/`, versioned in git), deterministic username-hash split, headline metric `capture@10pct` (PLAN §7), append-only leaderboard, verdict vs best previous run for the same target. `smoke` subcommand self-tests both layers on synthetic data (isolated dir, never pollutes real history).
+- **Harness smoke-tested end-to-end** (2026-09-17): DQ catches a planted FAIL (`9-9` result) and PASS checks pass; model verdicts fire correctly (`FIRST RUN` → `IMPROVED` → `NO IMPROVEMENT`). Synthetic pack runs in isolated `harness_smoke/`, never touching the real leaderboard.

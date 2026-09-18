@@ -27,6 +27,7 @@ class LichessClient:
                  token: str | None = None) -> None:
         self.min_interval = request_interval_s
         self._last_request = 0.0
+        self._bulk_client: LichessClient | None = None
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": config.USER_AGENT,
@@ -40,15 +41,16 @@ class LichessClient:
         if wait > 0:
             time.sleep(wait)
 
-    def _request(self, method: str, url: str, max_retries: int = 5, **kwargs) -> requests.Response:
+    def _request(self, method: str, url: str, max_retries: int = 12, **kwargs) -> requests.Response:
         for attempt in range(max_retries):
             self._throttle()
             resp = self.session.request(method, url, timeout=60, **kwargs)
             self._last_request = time.monotonic()
             if resp.status_code == 429:
                 retry_after = float(resp.headers.get("Retry-After", config.BACKOFF_429_DEFAULT_S))
-                print(f"429 rate-limited; sleeping {retry_after:.0f}s (attempt {attempt + 1}/{max_retries})")
-                time.sleep(retry_after)
+                wait = max(retry_after, config.BACKOFF_429_DEFAULT_S)
+                print(f"429 rate-limited; sleeping {wait:.0f}s (attempt {attempt + 1}/{max_retries})")
+                time.sleep(wait)
                 continue
             if resp.status_code >= 500:
                 wait = max(2 ** attempt, 5)
@@ -70,26 +72,37 @@ class LichessClient:
     # -- domain helpers ------------------------------------------------------
 
     def bulk_users(self, usernames: Iterable[str], progress_every: int = 10) -> list[dict]:
-        """Fetch profiles in batches of 300 via POST /api/users.
+        """Fetch profiles in safe batches via POST /api/users.
 
-        Confirmed bulk fields: createdAt, seenAt, perfs, playTime, title, profile;
-        patron appears on supporter accounts (asserted in P2 before use).
+        Lichess can rate-limit bulk requests aggressively; keep the chunk size
+        smaller than the absolute max and retry much longer than the default to
+        make the cohort pull resumable instead of brittle.
         """
         usernames = list(usernames)
         out: list[dict] = []
-        bulk = LichessClient(request_interval_s=config.BULK_REQUEST_INTERVAL_S)
+        if self._bulk_client is None:
+            self._bulk_client = LichessClient(
+                request_interval_s=max(config.BULK_REQUEST_INTERVAL_S, 5.0)
+            )
+            bulk = self._bulk_client
+        else:
+            bulk = self._bulk_client
         if "Authorization" in self.session.headers:
             bulk.session.headers["Authorization"] = self.session.headers["Authorization"]
-        n_chunks = (len(usernames) + config.BULK_MAX_IDS - 1) // config.BULK_MAX_IDS
-        for i in range(0, len(usernames), config.BULK_MAX_IDS):
-            chunk = usernames[i:i + config.BULK_MAX_IDS]
+
+        safe_batch_size = min(config.BULK_MAX_IDS, 150)
+        n_chunks = (len(usernames) + safe_batch_size - 1) // safe_batch_size
+        for i in range(0, len(usernames), safe_batch_size):
+            chunk = usernames[i:i + safe_batch_size]
             resp = bulk._request(
                 "POST", config.BULK_USERS_URL,
                 data=",".join(chunk),
                 headers={"Content-Type": "text/plain"},
             )
-            out.extend(resp.json())
-            done = i // config.BULK_MAX_IDS + 1
+            payload = resp.json()
+            if isinstance(payload, list):
+                out.extend(payload)
+            done = i // safe_batch_size + 1
             if done % progress_every == 0 or done == n_chunks:
                 print(f"bulk profiles: {done}/{n_chunks} batches ({len(out):,} users)")
         return out
