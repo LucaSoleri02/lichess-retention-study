@@ -1,0 +1,13 @@
+{
+  "pack": "baseline_pack",
+  "description": "First iteration pack: simple baseline -> richer feature sets -> stronger model, on both targets (churn, patron). Beat the champion before adding anything fancier.",
+  "experiments": [
+    {"name": "churn_logreg_core",  "target": "churn",  "model": "logreg", "features": "core"},
+    {"name": "churn_logreg_habit", "target": "churn",  "model": "logreg", "features": "core+habit"},
+    {"name": "churn_logreg_all",   "target": "churn",  "model": "logreg", "features": "all"},
+    {"name": "churn_gbdt_all",     "target": "churn",  "model": "gbdt",   "features": "all", "params": {"max_iter": 300}},
+    {"name": "patron_logreg_core", "target": "patron", "model": "logreg", "features": "core"},
+    {"name": "patron_logreg_all",  "target": "patron", "model": "logreg", "features": "all"},
+    {"name": "patron_gbdt_all",    "target": "patron", "model": "gbdt",   "features": "all", "params": {"max_iter": 300}}
+  ]
+}

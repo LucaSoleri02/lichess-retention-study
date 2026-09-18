@@ -1,0 +1,14 @@
+# --- environments & tooling ---
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# --- data & generated artifacts (reproducible via src/dump.py, src/cohort.py) ---
+Lichess/data/
+Lichess/outputs/
+Spotify/outputs/
+
+# --- interview-internal datasets: never publish these ---
+Ad Performance Dataset/
+In-game Currency/
