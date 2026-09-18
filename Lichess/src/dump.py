@@ -115,11 +115,16 @@ def parse_dump_to_parquet(month: str, report_every: int = 250_000) -> pd.DataFra
 
     out_path = config.games_parquet(month)
     if out_path.exists():
-        print(f"Existing parquet found: {out_path}; normalizing schema before continuing")
-        df = pd.read_parquet(out_path)
-        df = _type_games(df)
-        df.to_parquet(out_path, index=False, compression="zstd")
-        return df
+        existing = pd.read_parquet(out_path, columns=["utcdate"])
+        month_end = pd.Period(month, freq="M").end_time.normalize()
+        if not existing.empty and pd.to_datetime(existing["utcdate"], errors="coerce").max() >= month_end:
+            print(f"Existing parquet found: {out_path}; normalizing schema before continuing")
+            df = pd.read_parquet(out_path)
+            df = _type_games(df)
+            df.to_parquet(out_path, index=False, compression="zstd")
+            return df
+        print(f"Incomplete parquet found: {out_path}; rebuilding from the raw dump")
+        out_path.unlink()
 
     writer = None
     batch: list[dict] = []
