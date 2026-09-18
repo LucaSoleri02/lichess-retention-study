@@ -34,6 +34,9 @@ import pandas as pd
 from src import config, data_quality as dq
 from src import harness as hz
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+BASELINE_PACK = PROJECT_ROOT / "harness_runs" / "baseline_pack.json"
+
 
 # --- data loading -----------------------------------------------------------------
 
@@ -143,7 +146,7 @@ def cmd_smoke(_args) -> None:
         print()
 
     print("-- model layer demo (batch on synthetic frame) --")
-    pack = json.loads(Path("harness_runs/baseline_pack.json").read_text())
+    pack = json.loads(BASELINE_PACK.read_text())
     experiments = [hz.Experiment(**{**e, "features": hz.resolve_features(e["features"])})
                    for e in pack["experiments"]]
     hz.run_batch(experiments, df)
@@ -170,7 +173,10 @@ def cmd_batch(args) -> None:
     warn_if_git_dirty()
     df = load_model_frame()
     warn_if_dq_failing()
-    pack = json.loads(Path(args.pack).read_text())
+    pack_path = Path(args.pack)
+    if not pack_path.is_absolute():
+        pack_path = (PROJECT_ROOT / pack_path).resolve()
+    pack = json.loads(pack_path.read_text())
     experiments = [hz.Experiment(**{**e, "features": hz.resolve_features(e["features"])})
                    for e in pack["experiments"]]
     print(f"running pack '{pack.get('pack', args.pack)}': {len(experiments)} experiments\n")

@@ -114,6 +114,13 @@ def parse_dump_to_parquet(month: str, report_every: int = 250_000) -> pd.DataFra
     import pyarrow.parquet as pq
 
     out_path = config.games_parquet(month)
+    if out_path.exists():
+        print(f"Existing parquet found: {out_path}; normalizing schema before continuing")
+        df = pd.read_parquet(out_path)
+        df = _type_games(df)
+        df.to_parquet(out_path, index=False, compression="zstd")
+        return df
+
     writer = None
     batch: list[dict] = []
     n = 0
@@ -145,18 +152,30 @@ def parse_dump_to_parquet(month: str, report_every: int = 250_000) -> pd.DataFra
     return df
 
 
+def normalize_games_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Ensure the parquet schema uses the lowercase names expected by downstream code."""
+    mapping = {col: col.lower() for col in df.columns if col not in {"__fragment_index", "__batch_index", "__last_in_fragment", "__filename"}}
+    normalized = df.rename(columns=mapping)
+    if "timecontrol" in normalized.columns and "time_control_initial_s" not in normalized.columns:
+        normalized["time_control_initial_s"] = normalized["timecontrol"].str.split("+").str[0].pipe(
+            pd.to_numeric, errors="coerce"
+        )
+    return normalized
+
+
 def _type_games(df: pd.DataFrame) -> pd.DataFrame:
     """Cast raw string headers to analysis-ready dtypes."""
-    df = df.rename(columns=str.lower)
+    df = normalize_games_columns(df)
     df["datetime"] = pd.to_datetime(
         df["utcdate"] + " " + df["utctime"], format="%Y.%m.%d %H:%M:%S", errors="coerce"
     )
     for col in ("whiteelo", "blackelo", "whiteratingdiff", "blackratingdiff", "nummoves"):
         if col in df:
             df[col] = pd.to_numeric(df[col], errors="coerce")
-    df["time_control_initial_s"] = df["timecontrol"].str.split("+").str[0].pipe(
-        pd.to_numeric, errors="coerce"
-    )
+    if "time_control_initial_s" not in df.columns:
+        df["time_control_initial_s"] = df["timecontrol"].str.split("+").str[0].pipe(
+            pd.to_numeric, errors="coerce"
+        )
     # Lichess speed buckets from initial clock seconds (mirrors Lichess conventions)
     df["speed"] = pd.cut(
         df["time_control_initial_s"],
