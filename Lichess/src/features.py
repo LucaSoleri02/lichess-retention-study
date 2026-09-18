@@ -69,6 +69,7 @@ def _window_features(user_games: pd.DataFrame) -> pd.Series:
     g = user_games.sort_values("datetime")
     signup_day = g["datetime"].min().date()
     dates = g["datetime"].dt.date
+    speed_mode = g["speed"].dropna().mode()
     week1_end = signup_day + pd.Timedelta(days=7)
 
     sessions = _session_count(g["datetime"])
@@ -80,7 +81,7 @@ def _window_features(user_games: pd.DataFrame) -> pd.Series:
         "week1_days_active": dates[dates <= week1_end].nunique(),
         "returned_after_signup_day": bool((dates > signup_day).any()),
         "distinct_speeds": g["speed"].nunique(),
-        "dominant_speed": g["speed"].mode().iloc[0] if len(g) else None,
+        "dominant_speed": speed_mode.iloc[0] if not speed_mode.empty else None,
         "weekend_share": (g["datetime"].dt.dayofweek >= 5).mean(),
         "win_rate": g["score"].mean(),
         "opp_rating_mismatch": (g["opp_rating"] - g["rating"]).mean(),

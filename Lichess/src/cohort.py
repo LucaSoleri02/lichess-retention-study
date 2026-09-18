@@ -60,7 +60,9 @@ def pull_profiles(usernames: list[str], client: LichessClient | None = None) -> 
     remaining = [u for u in usernames if u.lower() not in seen]
     print(f"profiles: {len(done):,} checkpointed, {len(remaining):,} to fetch")
 
-    batch_size = config.BULK_MAX_IDS * 10  # checkpoint every ~10 bulk calls
+    # Use a smaller checkpoint block than the absolute API max so the cohort pull
+    # remains resumable under Lichess traffic shaping.
+    batch_size = max(500, min(config.BULK_MAX_IDS * 2, 1500))
     for i in range(0, len(remaining), batch_size):
         chunk = remaining[i:i + batch_size]
         rows = client.bulk_users(chunk)
@@ -117,10 +119,9 @@ def attach_labels(cohort: pd.DataFrame, pull_time: pd.Timestamp) -> pd.DataFrame
     """Add population flags, retention bands, churn segments, value tiers."""
     cohort = cohort.copy()
 
-    created_ms = cohort["created_at"].astype("int64") // 10**6
-    cohort["is_new_user"] = created_ms.between(
-        config.COHORT_MONTH_START_MS, config.COHORT_MONTH_END_MS - 1
-    )
+    cohort_start = pd.to_datetime(config.COHORT_MONTH_START_MS, unit="ms")
+    cohort_end = pd.to_datetime(config.COHORT_MONTH_END_MS, unit="ms")
+    cohort["is_new_user"] = cohort["created_at"].ge(cohort_start) & cohort["created_at"].lt(cohort_end)
     cohort["population"] = cohort["is_new_user"].map({True: "B", False: "A"})
 
     days_since_seen = (pull_time - cohort["seen_at"]).dt.days
