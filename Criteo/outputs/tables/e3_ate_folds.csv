@@ -1,0 +1,11 @@
+outcome,fold,n,eff_pp,wald_lo_pp,wald_hi_pp,covers_pooled
+visit,0,2796847,1.016,0.9518,1.0802,True
+visit,1,2798120,1.0445,0.9805,1.1086,True
+visit,2,2795330,1.0537,0.9898,1.1176,True
+visit,3,2793563,1.0458,0.9815,1.1101,True
+visit,4,2795732,1.0113,0.9471,1.0755,True
+conversion,0,2796847,0.1141,0.0989,0.1294,True
+conversion,1,2798120,0.1144,0.0994,0.1295,True
+conversion,2,2795330,0.1102,0.0951,0.1253,True
+conversion,3,2793563,0.1179,0.1029,0.1329,True
+conversion,4,2795732,0.1192,0.1043,0.1341,True
