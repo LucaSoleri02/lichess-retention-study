@@ -51,6 +51,6 @@ for s in range(0, n, B):
             out[s + r + i] = int.from_bytes(hashlib.md5(blk[i].tobytes()).digest()[:4], "big")
 
 df["row_hash"] = out.astype(np.int64)
-df.to_parquet(C.ROOT / "criteo_uplift_v2_hashed.parquet")
+df.to_parquet(C.INTERIM / "criteo_uplift_v2_hashed.parquet")
 print("done in", round(time.time() - t0, 1), "s")
 print(df["row_hash"].head(3).tolist())
