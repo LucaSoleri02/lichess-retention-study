@@ -1,0 +1,3 @@
+learner,qini_coef,auuc,top_decile_obs_effect_pp,top_decile_ci_lo_pp,top_decile_ci_hi_pp,spearman_s_vs_t,top_decile_overlap
+S_learner,0.08496,0.03342,6.399,5.905,6.886,0.7473,0.702
+T_learner,0.08269,0.03252,5.796,5.281,6.337,0.7473,0.702
