@@ -1,0 +1,12 @@
+check,status,detail
+shape,PASS,"13,979,592 rows x 17 cols (expected 13,979,592 x 17)"
+dtypes,PASS,"f0-f11 float64, treatment/conversion/visit/exposure int64, row_hash int64"
+missingness,PASS,"0 missing cells across all 17 columns x 13,979,592 rows"
+treatment_ratio,PASS,"treated share 0.850000 (expected 0.850 +/- 0.001) | treated 11,882,655 vs control 2,096,937"
+boundary_mass,PASS,"heaviest endpoint: f1 with 98.8% of rows at exact min/max (quantile-coded upstream - documented, not an error)"
+covariate_balance_SMD,PASS,max |SMD| = 0.0488 (f3); convention |SMD| < 0.1 OK
+feature_treatment_corr,PASS,"max |corr(feature, treatment)| = 0.01744 (f3)"
+feature_corr_extent,PASS,max |pairwise r| = 0.750; 7 of 66 pairs above |r| = 0.5
+no_infinities_features,PASS,0 inf values across f0-f11
+features_within_minmax,PASS,0 values outside observed per-column min/max (self-referential check)
+flags_in_0_1,PASS,"0 cells outside set {0,1} across treatment/conversion/visit/exposure"
