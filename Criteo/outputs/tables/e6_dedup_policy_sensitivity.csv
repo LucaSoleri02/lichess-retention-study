@@ -1,0 +1,3 @@
+policy,budget,n_sel,effect_pp,ci_lo_pp,ci_hi_pp,incremental_per_1000
+Uplift,0.1,190466,6.721,6.179,7.301,67.2
+Response,0.1,190466,4.845,4.243,5.479,48.4

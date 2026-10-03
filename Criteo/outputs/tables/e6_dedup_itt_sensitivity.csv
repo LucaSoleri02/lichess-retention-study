@@ -1,0 +1,5 @@
+outcome,version,rate_treated_pp,rate_control_pp,itt_pp,ci_lo_pp,ci_hi_pp
+visit,full,4.8543,3.8201,1.0342,1.006,1.0623
+visit,dedup,5.4047,3.9116,1.4932,1.4649,1.5228
+conversion,full,0.3089,0.1938,0.1152,0.1087,0.1221
+conversion,dedup,0.344,0.1984,0.1456,0.1389,0.1527

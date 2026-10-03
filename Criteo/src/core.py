@@ -32,15 +32,32 @@ def fold_id(df: pd.DataFrame) -> pd.Series:
     return row_hash(df) % C.N_FOLDS
 
 
+def is_train(df: pd.DataFrame) -> pd.Series:
+    return df["row_hash"] % 1000 < C.TRAIN_MAX
+
+
+def is_val(df: pd.DataFrame) -> pd.Series:
+    b = df["row_hash"] % 1000
+    return (b >= C.TRAIN_MAX) & (b < C.VAL_MAX)
+
+
+def is_test(df: pd.DataFrame) -> pd.Series:
+    return df["row_hash"] % 1000 >= C.VAL_MAX
+
+
 def ate_bootstrap(y1: np.ndarray, y0: np.ndarray, n_boot: int = 1000, seed: int = 0):
-    """ATE point estimate + percentile bootstrap CI + SE from boot dist."""
+    """ATE point estimate + percentile bootstrap CI + SE from boot dist.
+
+    Vectorized: bootstrap SE of a proportion from n draws is exactly
+    Binomial(n, p)/n, so arms are resampled as binomial counts (identical
+    distribution to row-resampling, 1e5x faster at n in the millions).
+    """
     rng = np.random.default_rng(seed)
-    boot = np.empty(n_boot)
-    for i in range(n_boot):
-        b1 = y1[rng.integers(0, len(y1), len(y1))]
-        b0 = y0[rng.integers(0, len(y0), len(y0))]
-        boot[i] = b1.mean() - b0.mean()
-    ate = y1.mean() - y0.mean()
+    p1, p0 = y1.mean(), y0.mean()
+    b1 = rng.binomial(len(y1), p1, n_boot) / len(y1)
+    b0 = rng.binomial(len(y0), p0, n_boot) / len(y0)
+    boot = b1 - b0
+    ate = p1 - p0
     lo, hi = np.percentile(boot, [2.5, 97.5])
     se = boot.std()
     return float(ate), float(lo), float(hi), float(se)
