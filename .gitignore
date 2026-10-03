@@ -12,3 +12,11 @@ Spotify/outputs/
 # --- interview-internal datasets: never publish these ---
 Ad Performance Dataset/
 In-game Currency/
+
+# --- separate self-contained project repos (own git remotes) ---
+dunnhumby-promotions/
+rees46-funnel/
+
+# Criteo raw data
+Criteo/criteo-research-uplift-v2.1.csv*
+Criteo/*.parquet
