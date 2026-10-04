@@ -1,6 +1,15 @@
-# AGENTS.md — Lichess Product Analytics: Agent Instructions
+# AGENTS.md — Project Conventions: Agent Instructions
 
 `PLAN.md` defines **what** the project is trying to learn. This file defines **how** it gets executed.
+
+## 0. Deliverable format — Jupyter notebooks (NEW)
+
+From now on, **all analysis work is done in Jupyter notebooks**.
+- Every new experiment, analysis, plot, or model step goes in a `.ipynb` (e.g. `Criteo/01_preprocessing_eda.ipynb`, `Criteo/02_ml_benchmark.ipynb`, `Criteo/03_causal_inference.ipynb`).
+- Agents must **leave notebooks in a fully run state** (all cells executed top-to-bottom, outputs saved) so the user can just open them in Jupyter to view results or present them.
+- Before finishing a notebook: **Restart & Run All must succeed** with no errors, and the saved notebook must contain the outputs.
+- Do not create standalone `.py` experiment scripts for analysis work; notebooks are the deliverable. (Only shared utility code, if genuinely needed, may live in a small `.py` module imported by the notebooks.)
+- Outputs/figures still get saved to `outputs/` where relevant so they are packed into slides.
 
 ## 1. Mission
 Optimize for: **correct data → valid analysis → clear evidence → useful product insight → convincing experiment design.**
@@ -31,6 +40,11 @@ Blocked = same failure repeats without a changed diagnosis, an implementation as
 1. Inspect the actual error/output, find root cause.
 2. Try the smallest targeted fix.
 3. Still stuck → stop, record `BLOCKER / EVIDENCE / LIKELY CAUSE / NEXT ACTION`, then fix, reduce scope, defer, or switch to an independent task. Never burn budget on a low-value blocker.
+
+### Unattended runs
+- When explicitly asked to work unattended, continue through the assigned task without waiting for user replies or stopping at routine checkpoints. Validate and record each checkpoint, then proceed to the next in-scope step.
+- Prefer non-interactive command options. Do not launch commands that wait for input; if a required step cannot run non-interactively, record the blocker and continue with independent in-scope work.
+- Do not treat user unavailability as permission for destructive or externally consequential actions. Preserve existing data and follow all source-of-truth, validation, and checkpoint rules above.
 
 ## 5. Unexpected or null results
 Before an unexpected result enters the story, check in order: cohort definition, row counts, missingness, feature timing, duplicate users, target prevalence, bin sizes, model leakage, preprocessing, figure construction.

@@ -73,6 +73,7 @@ axes[1].set_ylabel("Count")
 
 fig.tight_layout()
 fig.savefig(OUTPUT_DIR / "lichess_top_ratings.png", dpi=160)
+plt.show(fig)
 plt.close(fig)
 
 print("\nSaved chart:", OUTPUT_DIR / "lichess_top_ratings.png")
