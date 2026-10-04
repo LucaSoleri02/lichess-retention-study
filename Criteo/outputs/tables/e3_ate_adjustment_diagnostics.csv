@@ -1,0 +1,5 @@
+estimator,ate_pp
+raw diff-in-means (design-based),1.0342
+"HT, known e=0.85 (== raw by identity)",1.0342
+learned-e IPW (clipped),0.7709
+fully-interacted OLS (Lin 2013),0.7734

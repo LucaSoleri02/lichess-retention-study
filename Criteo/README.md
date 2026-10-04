@@ -61,5 +61,11 @@ Strongest: f9 (+0.50), f8 (−0.46), f4 (+0.27), f11 (−0.22), f3 (−0.21), f1
 
 ## Files here
 - `criteo-research-uplift-v2.1.csv.gz` / `.csv` — raw (csv gitignored)
-- `criteo_uplift_v2.parquet` — fast-loading cache
+- `data/interim/criteo_uplift_v2_hashed.parquet` — fast-loading cache + deterministic full-row hash
+- `data/interim/e4_val_uplift_scores.parquet`, `e2_best_visit_model.joblib` — model artifacts
+- `src/` — config paths, estimators (`core.py`), plotting style; `precompute_hash.py` rebuilds the cache
 - (analysis scripts + outputs/ to follow)
+
+## Regenerating the data cache (two steps, any machine)
+1. Obtain `criteo-research-uplift-v2.1.csv.gz` (Criteo AI Lab / HF mirror `criteo/criteo-uplift`) into this folder.
+2. `python src/precompute_hash.py` → writes `data/interim/criteo_uplift_v2_hashed.parquet` (adds the deterministic full-row hash used by every split/fold in the analysis).

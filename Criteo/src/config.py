@@ -3,7 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
-PARQUET = ROOT / "criteo_uplift_v2.parquet"
+PARQUET = DATA / "interim" / "criteo_uplift_v2_hashed.parquet"  # 13.98M rows + row_hash
 CSV_GZ = ROOT / "criteo-research-uplift-v2.1.csv.gz"
 INTERIM = DATA / "interim"
 OUTPUTS = ROOT / "outputs"

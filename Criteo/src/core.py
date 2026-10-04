@@ -1,5 +1,11 @@
-"""Row hashing, splits, folds, ATE/bootstrap, policy-value estimator."""
+"""Row hashing, splits, folds, ATE/bootstrap.
+
+Note: the notebook implementations of policy value / Qini (05, 04) are the
+authoritative versions of those estimators; this module deliberately does not
+duplicate them (single source of truth, per review).
+"""
 import hashlib
+
 import numpy as np
 import pandas as pd
 
@@ -11,6 +17,8 @@ def row_hash(df: pd.DataFrame) -> pd.Series:
 
     Includes ALL columns (features + treatment + outcomes + exposure) so that
     exact duplicate rows always share the same split/fold (no leakage through dups).
+    NOTE: 32-bit space -> ~20k colliding distinct-row pairs expected at 14M rows;
+    content-based dedup (not hash dedup) is the exact procedure.
     """
     cols = list(df.columns)
     out = np.empty(len(df), dtype=np.int64)
@@ -61,70 +69,3 @@ def ate_bootstrap(y1: np.ndarray, y0: np.ndarray, n_boot: int = 1000, seed: int 
     lo, hi = np.percentile(boot, [2.5, 97.5])
     se = boot.std()
     return float(ate), float(lo), float(hi), float(se)
-
-
-def policy_value(df_eval: pd.DataFrame, scores: np.ndarray, budget: float,
-                 y_col: str = C.VISIT, treat_col: str = C.TREATMENT,
-                 n_boot: int = 1000, seed: int = 0):
-    """Top-k targeting policy value estimated on randomized data (PLAN §2/§3).
-
-    Same estimator for every policy (random / response / uplift):
-      1. rank rows by score desc (ties: stable order)
-      2. select top budget-fraction
-      3. effect(k) = mean(Y | T=1, selected) - mean(Y | T=0, selected)
-         ^= effect of targeting within the selected group via randomized arms
-      4. incremental per 1,000 targeted = 1000 * effect(k)
-      5. bootstrap CI over selected rows (resample arms independently)
-      6. capture = incremental total in selected / incremental total full eval
-    Returns dict.
-    """
-    y = df_eval[y_col].to_numpy()
-    t = df_eval[treat_col].to_numpy()
-    order = np.argsort(-scores, kind="stable")
-    n_sel = int(round(len(df_eval) * budget))
-    sel = order[:n_sel]
-
-    y1, y0 = y[sel][t[sel] == 1], y[sel][t[sel] == 0]
-    ate, lo, hi, se = ate_bootstrap(y1, y0, n_boot=n_boot, seed=seed)
-
-    # scale-free capture share: effect * n_sel / total estimated incremental outcomes
-    y1_all, y0_all = y[t == 1], y[t == 0]
-    total_inc = (y1_all.mean() - y0_all.mean()) * len(df_eval)
-    inc_sel = ate * n_sel
-    capture = inc_sel / total_inc if total_inc != 0 else np.nan
-
-    return {
-        "budget": budget,
-        "n_selected": n_sel,
-        "n_treated_sel": len(y1),
-        "n_control_sel": len(y0),
-        "rate_treated_sel": float(y1.mean()),
-        "rate_control_sel": float(y0.mean()),
-        "effect": ate,
-        "ci_lo": lo,
-        "ci_hi": hi,
-        "se": se,
-        "incremental_per_1000": ate * 1000,
-        "ci_per_1000": (lo * 1000, hi * 1000),
-        "capture_share": capture,
-    }
-
-
-def random_policy_baseline(df_eval: pd.DataFrame, budget: float, seed: int = 0):
-    """Random targeting baseline: expectation = ATE (randomization), but we
-    draw a random subset to preserve sampling variance the same way."""
-    rng = np.random.default_rng(seed)
-    y = df_eval[C.VISIT].to_numpy()
-    t = df_eval[C.TREATMENT].to_numpy()
-    n_sel = int(round(len(df_eval) * budget))
-    sel = rng.choice(len(df_eval), size=n_sel, replace=False)
-    y1, y0 = y[sel][t[sel] == 1], y[sel][t[sel] == 0]
-    ate, lo, hi, se = ate_bootstrap(y1, y0, n_boot=1000, seed=seed)
-    y1_all, y0_all = y[t == 1], y[t == 0]
-    total_inc = (y1_all.mean() - y0_all.mean()) * len(df_eval)
-    return {
-        "budget": budget, "n_selected": n_sel,
-        "effect": float(ate), "ci_lo": float(lo), "ci_hi": float(hi), "se": float(se),
-        "incremental_per_1000": float(ate * 1000),
-        "capture_share": float(ate * n_sel / total_inc) if total_inc else np.nan,
-    }

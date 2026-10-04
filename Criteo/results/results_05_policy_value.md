@@ -14,7 +14,7 @@
 (incremental visits per 1,000 targeted, 95% CI)
 
 - **5%: uplift = 1.7× response**, CIs disjoint. **10%: 1.4×**, CIs disjoint. **20%: statistical tie** (gap collapses as response's high-score mass overlaps the persuadable slice).
-- Capture shares (scale-free): uplift 43.8% / 61.9% / 73.7% of all incremental visits vs response 25.6% / 44.7% / 70.1%; random ≈ budget share always.
+- Capture shares (scale-free, eval-split denominators): uplift 46.3% / 65.4% / 77.9% of all incremental visits vs response 27.0% / 47.3% / 74.1%; random ≈ budget share always.
 - **Test-split one-shot confirmation (10%):** ordering reproduced exactly — Uplift **68.3** [63.4, 73.6] vs Response **56.0** [49.8, 62.1] vs Random 10.8 [8.8, 12.9]; uplift's CI excludes response's. Validation result is not a split artifact.
 
 ## Conversion transfer (same slices, visit-trained policies)
@@ -29,8 +29,10 @@ Criteo rows are non-uniformly subsampled (zero-visit rows downsampled): absolute
 
 ## Problems / diagnostics
 
-- E2/E4 saved no model objects, so response scores and the test-split CATE required faithful refits of the frozen configs; refit validation AUC reproduced E2's 0.9466 and refit-vs-saved CATE rank correlation ≈ 1.0 (both verified in-notebook).
+- E2 saved a fitted model object (`data/interim/e2_best_visit_model.joblib`); E4 saved no model object, so the test-split CATE required a faithful S-learner refit. Refit validation AUC reproduced E2's 0.9466 and refit-vs-saved CATE rank correlation ≈ 1.0 (both verified in-notebook).
 - row_hash is not unique within split (~1.9k rows); E4 scores joined **by row position** with length/sequence validation.
+- **Tie-breaking fixed (review):** top-k selection now breaks ties by `row_hash` (contract) instead of file order — the raw file is positionally blocked by component incrementality tests, so file-order ties could correlate with arm.
+- **Capture-share denominators fixed (review):** computed from the evaluation split's own pooled ITT (validation 1.036 pp / test 1.081 pp), not frozen full-data constants. New capture shares: uplift 46.3% / 65.4% / 77.9% vs response 27.0% / 47.3% / 74.1% at 5/10/20%.
 - Random policy CI is a percentile range across 200 draws (selection randomness dominates).
 
 ## Limitations

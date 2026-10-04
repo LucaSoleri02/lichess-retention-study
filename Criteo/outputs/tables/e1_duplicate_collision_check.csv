@@ -1,0 +1,4 @@
+group,rows,dup_involved_share
+control (full),2096937,0.0454
+"treated, subsampled to control size",2096937,0.0443
+treated (full),11882655,0.1789

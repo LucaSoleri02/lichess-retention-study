@@ -27,8 +27,13 @@ All 10 fold-level 95% CIs cover the pooled effect. Fold ITT ranges: visit 1.011�
 
 ## Interpretation
 
-- Assignment to advertising increased visit probability by ~1.03 pp (+27%) and conversion by ~0.12 pp (+59%) — causal, extremely precise.
-- The dose is dilute: only 3.6% of treated users were ever exposed, so the IV-scaled "among the exposed" effect (~+28.7 pp visit) is a suggestive upper-frame read conditional on strong assumptions (esp. no noncompliance-driven confounding among treated — unverifiable here). Headline stays ITT.
+- Assignment to advertising increased visit probability by ~1.03 pp (+27%) and conversion by ~0.12 pp (+59%) — causal, extremely precise. (Note: all-14M-rows design-based estimates; no model selection is involved, so "test untouched" concerns don't apply — but the estimate does pool across the whole experimental sample.)
+- **Adjustment diagnostics (review addition, `e3_ate_adjustment_diagnostics.csv`):** the imbalance is small but detectable, and the adjusted estimators agree in sign and magnitude class with the raw ITT:
+  - treatment-predictability AUC (cross-fitted HistGB propensity, hash-parity halves): **0.510 / 0.510** — features barely predict assignment;
+  - design-based HT with known e = 0.85: **1.0342 pp** (algebraically identical to the raw difference);
+  - learned-e IPW (clipped): **0.7709 pp**; fully-interacted OLS (Lin 2013): **0.7734 pp**.
+  The adjusted estimators sit ~0.26 pp below the raw ITT — the direction implied by slight covariate imbalance interacting with strongly outcome-predictive features (f8/f9 AUCs ~0.93). Because 1.26M near-clone duplicate rows shrink the effective sample, the naive SE on the raw-vs-adjusted gap overstates certainty; we report the **raw design-based ITT as primary** and the adjusted estimate as a robustness read: *"small but detectable imbalance; adjusted and raw effects agree in sign and magnitude class."*
+- The dose is dilute: only 3.6% of treated users were ever exposed, so the IV-scaled "among the exposed" effect (~+28.7 pp visit) is a suggestive upper-frame read conditional on strong assumptions. Headline stays ITT.
 
 ## DQ (re-echoed in-notebook)
 
@@ -37,11 +42,12 @@ All 10 fold-level 95% CIs cover the pooled effect. Fold ITT ranges: visit 1.011�
 ## Limitations
 
 1. **Benchmark subsampling:** Criteo documented non-uniform subsampling (zero-visit rows downsampled) — absolute rates/effects are benchmark-scale only; true incrementality unknowable. Safe language: relative comparisons and scale-free shares.
-2. IV estimates are compliant-local and assumption-dependent; associational exposure patterns (visitors/converters are heavily over-represented among exposed) cannot separate selection from causation — that boundary is exactly what the E7 experiment would test.
+2. **IV estimates are compliers-only** (apply to the 3.6% exposed), require the exclusion restriction, and — flagged per review — exposure may *mechanically include visit-like events* (if exposure is partly defined by the outcome, the IV estimate is an upper bound). Associational exposure patterns (visitors/converters heavily over-represented among exposed) cannot separate selection from causation — that boundary is exactly what the E7 experiment would test.
 3. Conversion is downstream of visit; no multiple-testing concern (two pre-specified effects).
+4. Adjusted estimators assume X captures the component-test structure; AUC 0.51 suggests partial capture — another reason the raw design-based estimate stays primary.
 
 ## Artifacts
 
-- Tables: `outputs/tables/e3_ate.csv`, `e3_ate_folds.csv`, `e3_exposure_iv.csv`
+- Tables: `outputs/tables/e3_ate.csv`, `e3_ate_folds.csv`, `e3_exposure_iv.csv`, `e3_ate_adjustment_diagnostics.csv` (review addition)
 - Figures: `outputs/figures/e3_ate_outcomes_by_arm.png` (hero), `e3_ate_forest.png`, `e3_exposure_iv.png`
-- Notebook fully executed (23 cells, 0 errors), outputs saved.
+- Notebook fully executed (16 code cells, 0 errors), outputs saved.

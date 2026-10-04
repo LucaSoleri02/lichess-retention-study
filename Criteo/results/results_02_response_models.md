@@ -16,8 +16,9 @@
 ## Diagnostics & observations
 
 - **HistGB beats LR on every metric for both outcomes** → selected as the best visit model (hyperparameters + metrics saved to `data/interim/e2_best_visit_model.joblib`; early stopping never triggered for `visit` — ran all 300 iters; stopped at 120 for `conversion`).
+- **Framing correction (review): AUC 0.947 is not an achievement to headline.** Single-feature AUCs (`e2_single_feature_auc.csv`): **f8 alone 0.926, f9 alone 0.894** — the signal is almost fully available in individual columns. The likely explanation — an *inference from the numbers, labeled as such, not a documented fact* — is that the anonymized features encode prior engagement / user-history. The strategic point is unaffected: response propensity is trivially rankable, which is exactly why response targeting cannot separate sure-things from persuadables.
 - **Decile lift is extremely top-heavy:** observed visit rate 36.8% in the top decile (7.81x base) and 6.8% in D9 (1.44x), but D8 is 1.9% (0.39x) and everything below is far under base. sdResponse is concentrated in ~the top 20% of the score; mid/lower deciles are near-dead. Practical implication of the response-scoring rule: only the top ~2 deciles are worth acting on at all — and even that mixes sure-things with persuadables.
-- Calibration of the HistGB visit model on validation is excellent (10 quantile bins sit on the diagonal, 0–0.37 range). Top bin ~0.37 predicted vs ~0.37 observed.
+- Calibration of the HistGB visit model on validation is good (10 quantile bins track the diagonal over the 0–0.37 range) — described as *good*, not "near-perfect": at these sample sizes calibration error is tiny by construction and carries little information.
 - Permutation importance (neg log loss, 500k validation rows, 5 repeats): dominated by **f8** (0.0744) and **f2** (0.0290); f9, f6, f0 minor; f1, f5, f7, f10 ~zero. Descriptive only — features are anonymized, no meaning invented.
 - Validation conversion base rate 0.289% vs headline 0.29% — consistent with E1 snapshot.
 
@@ -31,7 +32,7 @@
 ## Artifacts
 
 - Figures: `outputs/figures/e2_response_roc_calibration.png`, `e2_response_decile_lift.png`
-- Tables: `outputs/tables/e2_response_metrics.csv`, `e2_response_lift_deciles.csv`, `e2_feature_importance.csv`
-- Model: `data/interim/e2_best_visit_model.joblib` (HistGB visit, full hyperparams + validation metrics)
+- Tables: `outputs/tables/e2_response_metrics.csv`, `e2_response_lift_deciles.csv`, `e2_feature_importance.csv`, `e2_single_feature_auc.csv` (review addition)
+- Model: `data/interim/e2_best_visit_model.joblib` (fitted HistGB visit model + validation metrics)
 
 **Set-up for E3:** predicting conversion ≠ knowing who to target. The relevant quantity is the difference of potential outcomes; sure things must be separated from persuadables before any top-k rule is decided.

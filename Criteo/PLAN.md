@@ -15,7 +15,8 @@ Deliverable: notebooks (fully run) + figures/tables in `Criteo/outputs/` + per-s
 - Treatment definition: randomized assignment `treatment`. Causal treatment ≠ exposure.
 - Outcomes: primary = `visit`; secondary = `conversion` (sparse → careful).
 - Splits: deterministic row-hash: `md5(full row tuple) % 1000` → [0,700) train / [700,850) validation / [850,1000) test (~70/15/15). Full-row hash so exact duplicates share a split (no train/test leakage through dups).
-- Final policy evaluation: **5-fold out-of-fold predictions on all 13.98M rows** (fold = `row_hash % 5`, folds independent of tr/val/test usage at prediction time). Test set kept as untouched sanity check.
+- Response model: fitted on **train-split treated rows only** (scores "response in the ad-enabled environment"); rationale: control rows would contaminate calibration with Y(0) outcomes. Control-only "sure-thing" score = future sensitivity, not in scope.
+- Final policy evaluation (**as run**): validation-split selection (~2.1M rows, CIs ~±0.5–0.8 pp on slice effects) + **one-shot 10% budget test confirmation**. Test used once, after all decisions frozen. See "Deviations" below for why this replaced the OOF plan.
 - Primary uplift metric: incremental outcomes per 1,000 targeted users at 5/10/20% budgets. Secondary: Qini/AUUC, top-20% capture share.
 - Policy budgets frozen: 5%, 10%, 20%.
 
@@ -24,7 +25,7 @@ Deliverable: notebooks (fully run) + figures/tables in `Criteo/outputs/` + per-s
 - ATE: `mean(Y|T=1) − mean(Y|T=0)` with CLT/Wald CI; randomized design ⇒ unbiased ITT. Both outcomes.
 - **Exposure IV (Wald)**: ATE/exposure-rate-among-treated ⇒ effect of exposure on exposed (LATE-style, report honestly as diluted-ATE correction, exposure rate among treated ~3.6%).
 - Uplift: S-learner and T-learner (visit primary; conversion secondary only if stable). No advanced learners unless S/T show signal and time allows.
-- Policy value at budget k% (same estimator for all policies, OOF set): select top-k rows by score (ties → row-hash order); effectπ(k) = mean(Y|T=1,selected) − mean(Y|T=0,selected); incremental per 1,000 targeted = 1,000 × effectπ(k); bootstrap CI (1,000 resamples over selected rows within each arm). Same estimator for random/response/uplift.
+- Policy value at budget k% (same estimator for all policies): select top-k rows by score (ties → row-hash order, NOT file order — the raw file is positionally blocked by component incrementality tests); effectπ(k) = mean(Y|T=1,selected) − mean(Y|T=0,selected); incremental per 1,000 targeted = 1,000 × effectπ(k); bootstrap CI (2,000 resamples, arms resampled independently). Capture share denominator = pooled ITT **of the evaluation split** (computed in-notebook), not a frozen full-data constant.
 - Capture share (scale-free): incremental outcomes captured by policy at budget k ÷ total incremental outcomes in evaluation set.
 - Conversion-transfer check: visit-trained policy evaluated on conversion.
 
@@ -34,20 +35,24 @@ Data sub-sampled non-uniformly (true incrementality level unknowable). All "+X%"
 ## 5. New-experiment design (deck close)
 Current targeting vs uplift targeting, equal budget/reach, primary = incremental outcome per targeted user, secondary = total visits/conversions, guardrails = exposure/frequency/economics when internal data available.
 
-## 6. Notebook map (all fully executed, outputs saved)
-1. `01_preprocessing_eda_rules.ipynb` — DQ, balance, duplicates, distributions, figures A/B + tables.
-2. `02_response_prediction_topk_lift.ipynb` — LR + HistGB, visit+conversion, top-k lift.
-3. `03_ate_exposure_iv_exploration.ipynb` — ATE, CIs, IV/one-slide exposure analysis, dup-sensitivity (E1).
-4. `04_uplift_CATE_quantiles.ipynb` — S/T-learner CATEs, segments, uplift quantiles table (E2, E4).
-5. `05_policy_value_eval_testset_uplift.ipynb` — validation-set S/T-learner comparison, final policy comparison on OOF full data (E5).
-6. `06_ab_design_impact_airflow.ipynb` — experiment design, business impact, ADF EDA, Airflow DAG write (E6–E7).
-Notebooks numbered as: E0 gates in 01; E1 in 03; E2 in 02; E3 in 03; E4 in 04; E5 in 05; E6/E7 in 06.
+## 6. Notebook map (all fully executed, outputs saved) — as run
+1. `01_preprocessing_eda_rules.ipynb` — DQ, balance, duplicate anatomy + collision check, distributions, figures + tables.
+2. `02_response_prediction_topk_lift.ipynb` — LR + HistGB, visit+conversion, top-k lift, single-feature AUC context.
+3. `03_ate_exposure_iv_exploration.ipynb` — ATE + CIs, fold stability, adjustment diagnostics (predictability AUC, Lin OLS, IPW), exposure Wald IV.
+4. `04_uplift_cate_models.ipynb` — S/T-learner CATEs, Qini/AUUC, top-decile observed effects, calibration deciles.
+5. `05_policy_value_eval_testset_uplift.ipynb` — policy comparison on validation, one-shot test confirmation, slice-rates export.
+6. `06_sensitivity_segments_expdesign.ipynb` — dedup sensitivity (corrected story), uplift segments (E6), E7 experiment design + corrected power sketch.
+
+## 6b. Deviations from the frozen contract (honesty log)
+1. **Policy evaluation design.** Frozen contract said 5-fold OOF on all 13.98M rows; as-run uses validation-split evaluation + one-shot 10% test confirmation. Rationale: at the observed effect sizes, 2.1M-row splits give CI half-widths of ~0.5–0.8 pp (tight vs the 1.8–4.4 pp contrasts being compared); the one-shot test confirmation guards split-instability; full OOF re-fitting (5× full model refits) added machine-time without decision-relevant precision. The reviewer-prompted OOF concern (small control counts in tight slices) is addressed by the slice sizes actually used (~31k controls in the 10% slice).
+2. **Response-model population.** Frozen contract said "all rows pooled"; as-run trains on train-split treated rows only (documented above) — practitioner score for the ad-enabled environment.
+3. **Notebook contents.** The as-run notebook map (§6) replaces earlier planned names (no Airflow/ADF content exists — that line was scaffolding noise, removed).
 
 ## 7. results.md per notebook
 `Criteo/results/results_01...md` etc., with problems, diagnostics, sensitivity.
 
 ## 8. Decision gates
-- Gate 1 (data): balance/structure anomalies → fix or带上 caveat before modeling.
+- Gate 1 (data): balance/structure anomalies → fix or carry the caveat before modeling.
 - Gate 2 (ATE): tiny/uncertain ATE alone does not kill heterogeneity work.
 - Gate 3 (uplift): if uplift ≤ response targeting on held-out eval → report honestly, reframe E7 as "validate uplift targeting".
 - Gate 4 (production): only if stability + held-out value + interpretability pass.
