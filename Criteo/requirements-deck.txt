@@ -1,0 +1,6 @@
+# Deck figure rendering only (charts C1–C5, C4b + diagrams D1–D4).
+# The analysis notebooks have their own heavy deps; this file is deliberately minimal
+# so the deck figures can be re-rendered on any machine from outputs/tables CSVs alone.
+altair>=5.3
+vl-convert-python>=1.0
+pandas>=2.0
