@@ -20,3 +20,4 @@ rees46-funnel/
 # Criteo raw data
 Criteo/criteo-research-uplift-v2.1.csv*
 Criteo/*.parquet
+Criteo/data/interim/*.parquet
